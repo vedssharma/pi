@@ -91,6 +91,20 @@ describe("llama.cpp extension", () => {
 		]);
 	});
 
+	// Regression: #9016 — llama.cpp server supports reasoning and reasoning_effort since July 2026 (PR #26045).
+	it("exposes reasoning and reasoning effort flags for llama.cpp models", () => {
+		const controller = createLlamaProvider();
+		controller.setCatalog(
+			[{ id: "test-model", status: { value: "loaded" }, meta: { n_ctx: 4096 } }],
+			"http://localhost:8080",
+		);
+
+		const models = controller.provider.getModels();
+		expect(models).toHaveLength(1);
+		expect(models[0].reasoning).toBe(true);
+		expect(models[0].compat?.supportsReasoningEffort).toBe(true);
+	});
+
 	it("persists and restores selectable models for cache-only startup refreshes", async () => {
 		let cachedEntry: ModelsStoreEntry | undefined;
 		const { url } = await listen((request, response) => {
