@@ -10,7 +10,7 @@ import { DEFAULT_MAX_BYTES, formatSize, type TruncationResult, truncateHead } fr
 
 const lsSchema = Type.Object({
 	path: Type.Optional(Type.String({ description: "Directory to list (default: current directory)" })),
-	limit: Type.Optional(Type.Number({ description: "Maximum number of entries to return (default: 500)" })),
+	limit: Type.Optional(Type.Number({ description: "Maximum number of entries to return (default: 500)", minimum: 1 })),
 });
 
 export const lsToolSystemPromptContribution = {
@@ -81,28 +81,27 @@ export function createLsToolDefinition(
 				(async () => {
 					try {
 						const dirPath = resolveToCwd(path || ".", ctx?.cwd || cwd);
-						const effectiveLimit = limit ?? DEFAULT_LIMIT;
+						// Clamp so limit=0 cannot hide every entry behind an "(empty directory)" result.
+						const effectiveLimit = Math.max(1, limit ?? DEFAULT_LIMIT);
 
+						// Errors are thrown, not rejected directly, so the catch below removes the abort listener.
 						// Check if path exists.
 						if (!(await ops.exists(dirPath))) {
-							reject(new Error(`Path not found: ${dirPath}`));
-							return;
+							throw new Error(`Path not found: ${dirPath}`);
 						}
 
 						// Check if path is a directory.
 						const stat = await ops.stat(dirPath);
 						if (!stat.isDirectory()) {
-							reject(new Error(`Not a directory: ${dirPath}`));
-							return;
+							throw new Error(`Not a directory: ${dirPath}`);
 						}
 
 						// Read directory entries.
 						let entries: string[];
 						try {
 							entries = await ops.readdir(dirPath);
-						} catch (e: any) {
-							reject(new Error(`Cannot read directory: ${e.message}`));
-							return;
+						} catch (e) {
+							throw new Error(`Cannot read directory: ${e instanceof Error ? e.message : String(e)}`);
 						}
 
 						// Sort alphabetically, case-insensitive.
@@ -159,7 +158,7 @@ export function createLsToolDefinition(
 							content: [{ type: "text", text: output }],
 							details: Object.keys(details).length > 0 ? details : undefined,
 						});
-					} catch (e: any) {
+					} catch (e) {
 						signal?.removeEventListener("abort", onAbort);
 						reject(e);
 					}

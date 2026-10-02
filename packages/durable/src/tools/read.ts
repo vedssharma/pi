@@ -75,11 +75,13 @@ export function createReadTool(): ToolRegistration<typeof readSchema, ReadToolDe
 				// Show the start of the line, cut at the byte limit on a character boundary.
 				const lineBytes = new TextEncoder().encode(allLines[startLine]);
 				const end = characterEnd(lineBytes, DEFAULT_MAX_BYTES);
+				// Single-quote the path so spaces and shell metacharacters survive.
+				const quotedPath = `'${path.replaceAll("'", "'\\''")}'`;
 				outputText = new TextDecoder().decode(lineBytes.subarray(0, end));
 				diagnostics.push({
 					severity: "warn",
 					code: "truncated",
-					message: `Line ${startLineDisplay} is ${formatSize(lineBytes.byteLength)}, exceeds the ${formatSize(DEFAULT_MAX_BYTES)} limit; showing its first ${formatSize(end)}. Use bash: sed -n '${startLineDisplay}p' ${path} | tail -c +${end + 1}`,
+					message: `Line ${startLineDisplay} is ${formatSize(lineBytes.byteLength)}, exceeds the ${formatSize(DEFAULT_MAX_BYTES)} limit; showing its first ${formatSize(end)}. Use bash: sed -n '${startLineDisplay}p' ${quotedPath} | tail -c +${end + 1}`,
 				});
 				details = { truncation: { ...truncation, outputBytes: end, outputLines: 1 } };
 			} else if (truncation.truncated) {

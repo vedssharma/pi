@@ -1,3 +1,4 @@
+import { execFileSync } from "child_process";
 import { applyPatch } from "diff";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -180,6 +181,34 @@ describe("Coding Agent Tools", () => {
 			await expect(readTool.execute("test-call-8", { path: testFile, offset: 100 })).rejects.toThrow(
 				/Offset 100 is beyond end of file \(3 lines total\)/,
 			);
+		});
+
+		it("should treat limit below 1 as 1", async () => {
+			const testFile = join(testDir, "limit-zero.txt");
+			writeFileSync(testFile, "Line 1\nLine 2\nLine 3");
+
+			const result = await readTool.execute("test-call-limit-zero", { path: testFile, limit: 0 });
+			const output = getTextOutput(result);
+
+			expect(output).toContain("Line 1");
+			expect(output).not.toContain("Line 2");
+			expect(output).toContain("[2 more lines in file. Use offset=2 to continue.]");
+		});
+
+		it("should shell-quote the path in the oversized first line hint", async () => {
+			const testFile = join(testDir, "it's a file.txt");
+			writeFileSync(testFile, "x".repeat(60 * 1024));
+
+			const result = await readTool.execute("test-call-long-line", { path: testFile });
+			const output = getTextOutput(result);
+
+			expect(output).toContain(`sed -n '1p' '${testFile.replaceAll("'", "'\\''")}' | head -c`);
+			if (process.platform !== "win32") {
+				const command = output.match(/Use bash: (.*)\]$/)?.[1];
+				expect(command).toBeDefined();
+				const printed = execFileSync("bash", ["-c", command ?? ""], { encoding: "utf-8" });
+				expect(printed).toBe("x".repeat(50 * 1024));
+			}
 		});
 
 		it("should include truncation details when truncated", async () => {
@@ -983,6 +1012,41 @@ describe("Coding Agent Tools", () => {
 
 			expect(output).toContain(".hidden-file");
 			expect(output).toContain(".hidden-dir/");
+		});
+
+		it("should report an empty directory", async () => {
+			const result = await lsTool.execute("test-call-ls-empty", { path: testDir });
+
+			expect(getTextOutput(result)).toBe("(empty directory)");
+			expect(result.details).toBeUndefined();
+		});
+
+		it("should reject missing paths and non-directories", async () => {
+			const testFile = join(testDir, "file.txt");
+			writeFileSync(testFile, "content");
+
+			await expect(lsTool.execute("test-call-ls-missing", { path: join(testDir, "missing") })).rejects.toThrow(
+				/Path not found/,
+			);
+			await expect(lsTool.execute("test-call-ls-file", { path: testFile })).rejects.toThrow(/Not a directory/);
+		});
+
+		it("should report when the entry limit is reached", async () => {
+			for (const name of ["a.txt", "b.txt", "c.txt"]) writeFileSync(join(testDir, name), "");
+
+			const result = await lsTool.execute("test-call-ls-limit", { path: testDir, limit: 2 });
+
+			expect(getTextOutput(result)).toBe("a.txt\nb.txt\n\n[2 entries limit reached. Use limit=4 for more]");
+			expect(result.details?.entryLimitReached).toBe(2);
+		});
+
+		it("should not report a non-empty directory as empty when limit is 0", async () => {
+			writeFileSync(join(testDir, "a.txt"), "");
+			writeFileSync(join(testDir, "b.txt"), "");
+
+			const result = await lsTool.execute("test-call-ls-limit-zero", { path: testDir, limit: 0 });
+
+			expect(getTextOutput(result)).toBe("a.txt\n\n[1 entries limit reached. Use limit=2 for more]");
 		});
 	});
 });

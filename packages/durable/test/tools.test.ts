@@ -246,6 +246,13 @@ describe("durable tools", () => {
 			expect(result.diagnostics).toEqual([]);
 		});
 
+		it("shell-quotes the path in the oversized line hint", async () => {
+			const env = createEnv();
+			getOrThrow(await env.writeFile("it's long.txt", "x".repeat(60_000), BACKGROUND_CONTEXT));
+			const result = await run(createReadTool(), { path: "it's long.txt" }, env);
+			expect(diagnosticText(result)).toContain("Use bash: sed -n '1p' 'it'\\''s long.txt' | tail -c +51201");
+		});
+
 		it("shows the start of a line longer than the byte limit", async () => {
 			const env = createEnv();
 			getOrThrow(await env.writeFile("long.txt", `${"é".repeat(40_000)}\nnext\n`, BACKGROUND_CONTEXT));
@@ -254,7 +261,7 @@ describe("durable tools", () => {
 			// Two-byte characters: the cut lands on a character boundary at or below the limit.
 			expect(text).toBe("é".repeat(25_600));
 			expect(diagnosticText(result)).toBe(
-				"Line 1 is 78.1KB, exceeds the 50.0KB limit; showing its first 50.0KB. Use bash: sed -n '1p' long.txt | tail -c +51201",
+				"Line 1 is 78.1KB, exceeds the 50.0KB limit; showing its first 50.0KB. Use bash: sed -n '1p' 'long.txt' | tail -c +51201",
 			);
 			expect((result.details as { truncation: object }).truncation).toMatchObject({
 				truncated: true,
